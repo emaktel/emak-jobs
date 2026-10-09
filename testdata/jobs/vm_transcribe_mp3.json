@@ -1,0 +1,19 @@
+{
+ "v": 1,
+ "id": "00000000-0000-4000-8000-000000000011",
+ "type": "http",
+ "created": "2026-10-09T20:00:00Z",
+ "attempts": 0,
+ "label": "vm_transcribe clinic.example.com 101 msg_3f1c2a9e",
+ "method": "POST",
+ "url": "https://api.example.com/api/v0/voicemails/messages/transcribe/3f1c2a9e-1111-4222-8333-444455556666",
+ "auth": "vm_fetch",
+ "body_file": "/var/spool/emak-jobs/blobs/00000000-0000-4000-8000-000000000002.mp3",
+ "original_body_file": "/var/lib/freeswitch/storage/voicemail/default/clinic.example.com/101/msg_3f1c2a9e-1111-4222-8333-444455556666.mp3",
+ "delete_body_file": true,
+ "content_type": "audio/mpeg",
+ "expect": "\"success\"\\s*:\\s*true",
+ "timeout_s": 90,
+ "log_ok": "[voicemail] transcription OK: msg_3f1c2a9e",
+ "log_fail": "[voicemail] transcription FAILED for msg_3f1c2a9e"
+}

@@ -1,0 +1,15 @@
+{
+ "v": 1,
+ "id": "00000000-0000-4000-8000-000000000005",
+ "type": "http",
+ "created": "2026-10-09T20:00:00Z",
+ "attempts": 4611686018427387904,
+ "label": "vm_delete_message clinic.example.com 101 msg_3f1c2a9e (delete_recording.lua)",
+ "method": "DELETE",
+ "url": "https://api.example.com/api/v0/voicemails/messages/r2/clinic.example.com/101/3f1c2a9e-1111-4222-8333-444455556666",
+ "auth": "vm_fetch",
+ "expect": "\"success\"\\s*:\\s*true",
+ "timeout_s": 60,
+ "log_ok": "[voicemail] R2 message delete OK: msg_3f1c2a9e",
+ "log_fail": "[voicemail] R2 message delete FAILED for msg_3f1c2a9e"
+}

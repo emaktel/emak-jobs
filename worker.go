@@ -35,6 +35,9 @@ type worker struct {
 
 	ctx      context.Context // cancelled on SIGTERM: nothing new is claimed and in-flight requests stop
 	queue    chan string     // paths in new/ or retry/ to claim
+	queuedMu sync.Mutex
+	queued   map[string]bool // paths in queue: the 60 s rescans don't add a path twice
+	lockFile *os.File        // flock on <spool>/.lock: one worker per spool
 	inflight int64
 	started  time.Time
 	wg       sync.WaitGroup
@@ -49,13 +52,50 @@ type worker struct {
 
 func (w *worker) dir(n string) string { return filepath.Join(w.spool, n) }
 
+// enqueue queues a new/ job without blocking (inotify and the rescans must keep running); if the
+// queue is full, the 60 s rescan of new/ picks the file up once there is room.
 func (w *worker) enqueue(path string) {
+	if !w.mark(path) {
+		return
+	}
 	select {
 	case w.queue <- path:
 	default:
-		// The 60 s housekeeping rescan of new/ picks the file up once there is room.
+		w.unmark(path)
 		log.Printf("WARN queue full, %s left for the next rescan", filepath.Base(path))
 	}
+}
+
+// mark records path as queued; false if it already is.
+func (w *worker) mark(path string) bool {
+	w.queuedMu.Lock()
+	defer w.queuedMu.Unlock()
+	if w.queued[path] {
+		return false
+	}
+	w.queued[path] = true
+	return true
+}
+
+func (w *worker) unmark(path string) {
+	w.queuedMu.Lock()
+	delete(w.queued, path)
+	w.queuedMu.Unlock()
+}
+
+// lockSpool takes an exclusive lock on the spool: a second worker on the same spool would move
+// the first one's in-flight jobs from work/ back to new/ and run them twice.
+func (w *worker) lockSpool() error {
+	f, err := os.OpenFile(filepath.Join(w.spool, ".lock"), os.O_CREATE|os.O_RDWR, 0660)
+	if err != nil {
+		return fmt.Errorf("spool lock: %w", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return fmt.Errorf("another emak-jobs is already running on %s", w.spool)
+	}
+	w.lockFile = f
+	return nil
 }
 
 // start runs the worker. The order matters: work/ is recovered while nothing else runs, the
@@ -66,6 +106,9 @@ func (w *worker) start() error {
 		if err := os.MkdirAll(w.dir(d), 0770); err != nil {
 			return fmt.Errorf("mkdir %s: %w", w.dir(d), err)
 		}
+	}
+	if err := w.lockSpool(); err != nil {
+		return err
 	}
 	if n := w.recoverWork(); n > 0 {
 		log.Printf("recovered %d interrupted job(s) from work/", n)
@@ -95,6 +138,7 @@ func (w *worker) consume() {
 		case <-w.ctx.Done():
 			return
 		case p := <-w.queue:
+			w.unmark(p)
 			w.process(p)
 		}
 	}
@@ -128,12 +172,24 @@ func (w *worker) scheduleRetries() {
 	}
 }
 
+// scheduleAt queues a retry/ job when its next_at comes. Unlike new/ (rescanned every minute),
+// nothing rescans retry/, so a full queue makes this wait for room instead of dropping the job.
 func (w *worker) scheduleAt(p string, inSecs int64) {
+	deliver := func() {
+		if !w.mark(p) {
+			return
+		}
+		select {
+		case w.queue <- p:
+		case <-w.ctx.Done():
+			w.unmark(p)
+		}
+	}
 	if inSecs <= 0 {
-		w.enqueue(p)
+		go deliver()
 		return
 	}
-	time.AfterFunc(time.Duration(inSecs)*time.Second, func() { w.enqueue(p) })
+	time.AfterFunc(time.Duration(inSecs)*time.Second, deliver)
 }
 
 // fail files a job that can't be read or can never run as written into failed/, unchanged.
@@ -164,6 +220,16 @@ func (w *worker) process(src string) {
 	}
 	atomic.AddInt64(&w.inflight, 1)
 	defer atomic.AddInt64(&w.inflight, -1)
+	defer func() {
+		// A bug must cost one job, not the worker: without this a panic would crash-loop on the
+		// same file, which start recovers from work/ every time.
+		if r := recover(); r != nil {
+			log.Printf("ERR job=%s panic: %v -> failed/", name, r)
+			if err := os.Rename(work, filepath.Join(w.dir("failed"), name)); err != nil {
+				log.Printf("ERR job=%s move to failed/: %v", name, err)
+			}
+		}
+	}()
 
 	j, err := readJob(work)
 	if err != nil {
@@ -171,7 +237,7 @@ func (w *worker) process(src string) {
 		return
 	}
 	if len(j.Unknown) > 0 {
-		log.Printf("WARN job=%s unknown field(s) %s (ignored; `emak-jobs check` refuses them) | %s", j.ID, strings.Join(j.Unknown, ", "), j.Label)
+		log.Printf("WARN job=%s unknown field(s) %s | %s", j.ID, strings.Join(j.Unknown, ", "), j.Label)
 	}
 	if wait := j.NextAt - time.Now().Unix(); wait > 0 {
 		// Claimed before its backoff ended (a stale queue entry): put it back and wait.
@@ -239,7 +305,7 @@ func (w *worker) process(src string) {
 		w.stats.Unlock()
 		return
 	}
-	d := backoff[min(j.Attempts-1, len(backoff)-1)]
+	d := backoff[min(max(j.Attempts-1, 0), len(backoff)-1)]
 	j.NextAt = time.Now().Add(d).Unix()
 	if err := writeJob(work, j); err != nil {
 		log.Printf("ERR job=%s record retry: %v", j.ID, err)

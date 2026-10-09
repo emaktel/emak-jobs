@@ -87,6 +87,7 @@ func run() int {
 		}},
 		ctx:     ctx,
 		queue:   make(chan string, 100000),
+		queued:  map[string]bool{},
 		started: time.Now(),
 	}
 	if w.apiKey == "" {

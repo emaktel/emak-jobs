@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func newTestWorker(t *testing.T, handler http.HandlerFunc) (*testWorker, *httpte
 	w := &worker{
 		spool: filepath.Join(dir, "spool"), workers: 2, maxAttempts: 3, doneKeep: time.Hour,
 		statusFile: filepath.Join(dir, "status.json"), apiKey: "test-api-key", client: srv.Client(),
-		ctx: ctx, queue: make(chan string, 100), started: time.Now(),
+		ctx: ctx, queue: make(chan string, 100), queued: map[string]bool{}, started: time.Now(),
 	}
 	for _, d := range spoolDirs {
 		if err := os.MkdirAll(w.dir(d), 0770); err != nil {
@@ -259,5 +260,62 @@ func TestStatusReportsVersionAndProcess(t *testing.T) {
 	json.Unmarshal(b, &st)
 	if st["version"] != version || st["pid"] != float64(os.Getpid()) || st["started"] == "" || st["work"] != float64(0) {
 		t.Fatalf("status: %s", b)
+	}
+}
+
+// A due retry is never dropped when the queue is full: it waits for room.
+func TestRetryWaitsForQueueRoom(t *testing.T) {
+	tw, _ := newTestWorker(t, ok)
+	tw.queue = make(chan string, 1)
+	tw.queue <- "first"
+	tw.scheduleAt("/spool/retry/r.json", 0)
+	if got := <-tw.queue; got != "first" {
+		t.Fatalf("got %s", got)
+	}
+	select {
+	case got := <-tw.queue:
+		if got != "/spool/retry/r.json" {
+			t.Fatalf("got %s", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("retry dropped while the queue was full")
+	}
+}
+
+// Two workers must never share a spool: the second would recover the first one's in-flight jobs.
+func TestSecondWorkerOnSpoolRefused(t *testing.T) {
+	tw, _ := newTestWorker(t, ok)
+	if err := tw.start(); err != nil {
+		t.Fatal(err)
+	}
+	second := &worker{spool: tw.spool, ctx: tw.ctx, queue: make(chan string, 1), queued: map[string]bool{}}
+	if err := second.start(); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("second worker started: %v", err)
+	}
+}
+
+// A path already waiting in the queue isn't queued again by a rescan.
+func TestRescanDoesNotDuplicateQueuedPaths(t *testing.T) {
+	tw, _ := newTestWorker(t, ok)
+	tw.enqueue("/spool/new/a.json")
+	tw.enqueue("/spool/new/a.json")
+	tw.scheduleAt("/spool/new/a.json", 0)
+	time.Sleep(100 * time.Millisecond)
+	if n := len(tw.queue); n != 1 {
+		t.Fatalf("queue holds %d entries, want 1", n)
+	}
+}
+
+// A panic while running a job files that job in failed/ instead of taking the worker down.
+func TestPanicCostsOneJob(t *testing.T) {
+	tw, srv := newTestWorker(t, ok)
+	tw.client = nil // makes the request path panic
+	p := tw.put(t, "new", "p", func(j *Job) { j.URL = srv.URL + "/p" })
+	tw.process(p)
+	if !exists(filepath.Join(tw.dir("failed"), "p.json")) || exists(filepath.Join(tw.dir("work"), "p.json")) {
+		t.Fatal("panicking job not filed in failed/")
+	}
+	if atomic.LoadInt64(&tw.inflight) != 0 {
+		t.Fatal("inflight not released")
 	}
 }

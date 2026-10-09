@@ -47,15 +47,17 @@ type Job struct {
 	OriginalBody   string            `json:"original_body_file,omitempty"`
 	LastError      string            `json:"last_error,omitempty"`
 
-	// Unknown lists fields this worker doesn't know. `check` refuses them, so the writer's tests
-	// catch a typo or an unannounced field; the running worker only warns, so a harmless extra
-	// field never costs a voicemail.
+	// Unknown lists fields this worker doesn't know (or knows only under another case). `check`
+	// refuses them, so the writer's tests catch a typo or an unannounced field; the running worker
+	// only warns, so a harmless extra field never costs a voicemail.
 	Unknown []string `json:"-"`
 }
 
 const (
 	defaultTimeoutS = 120
 	maxTimeoutS     = 3600
+	// far above any EMAK_JOBS_MAX_ATTEMPTS; refuses values that would overflow when incremented
+	maxAttemptsField = 1000
 )
 
 var (
@@ -103,9 +105,14 @@ func parseJob(b []byte) (*Job, error) {
 		return nil, invalid("not a JSON object: %v", err)
 	}
 	for k := range fields {
-		if !knownFields[k] {
-			j.Unknown = append(j.Unknown, k)
+		if knownFields[k] {
+			continue
 		}
+		if knownFields[strings.ToLower(k)] {
+			// encoding/json matched it case-insensitively and used it; the writer still has a typo
+			k += " (mis-cased, used anyway)"
+		}
+		j.Unknown = append(j.Unknown, k)
 	}
 	sort.Strings(j.Unknown)
 	j.V = formatVersion
@@ -151,6 +158,12 @@ func (j *Job) validate() error {
 		if _, err := regexp.Compile(j.Expect); err != nil {
 			return invalid("expect is not a valid Go regexp: %v", err)
 		}
+	}
+	if j.Attempts < 0 || j.Attempts > maxAttemptsField {
+		return invalid("attempts %d outside 0..%d", j.Attempts, maxAttemptsField)
+	}
+	if j.NextAt < 0 {
+		return invalid("next_at %d is negative", j.NextAt)
 	}
 	if j.TimeoutS < 1 || j.TimeoutS > maxTimeoutS {
 		return invalid("timeout_s %d outside 1..%d", j.TimeoutS, maxTimeoutS)

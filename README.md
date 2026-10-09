@@ -24,7 +24,8 @@ FreeSWITCH Lua (www-data)                     emak-jobs (www-data, systemd)
                                                 invalid job  -> failed/ at once, never retried
 ```
 
-- **Durable.** Jobs are files. On start the worker moves anything left in `work/` back to `new/` before it claims anything, then queues `new/` and schedules `retry/` by each job's `next_at`. A 60 s rescan of `new/` catches anything inotify missed.
+- **Durable.** Jobs are files. On start the worker moves anything left in `work/` back to `new/` before it claims anything, then queues `new/` and schedules `retry/` by each job's `next_at`. A 60 s rescan of `new/` catches anything inotify missed. One worker per spool: a second one (started by hand, say) refuses to start.
+- **Contained failures.** A job that panics the worker goes to `failed/`; the worker keeps running.
 - **Stopping.** SIGTERM stops claims, cancels in-flight requests and puts those jobs back in `new/` without counting the attempt; it takes milliseconds. A request the server had already completed when it was cancelled runs again on start, so the endpoints must tolerate a repeat.
 - **Bodies.** A job can stream a file as its body. With `delete_body_file`, the file is deleted only after the job is filed in `done/`, so a job is never left without its body. Lua's `copy_body = true` first snapshots the file into `spool/blobs/`, because callers delete the original right after enqueueing.
 - **No secrets in the spool.** A job names its credential (`auth`) and the worker supplies it on every attempt:
@@ -63,7 +64,7 @@ The writer is `emak_jobs.lua` in the FusionPBX fork (`app/switch/resources/scrip
 
 A job that can never run as written (bad JSON, unknown `v`, type, method or auth, a bad `expect`…) goes straight to `failed/` with one `ERR job=… invalid: …` log line.
 
-**The contract.** `testdata/jobs/` holds a file for every shape the Lua writer produces, and the tests prove the worker accepts each one and rewrites it on retry without losing a field. `emak-jobs check` runs the same validation from the command line; it also refuses fields the worker doesn't know (the running worker only warns about those). The fork's Lua test writes real job files through `emak_jobs.enqueue` and runs `emak-jobs check` on them, and the installer's drift check runs it on the last day of `done/`. Changing the format means a new `v`: the worker that reads it ships and runs everywhere before the Lua that writes it.
+**The contract.** `testdata/jobs/` holds a file for every shape the Lua writer produces, and the tests prove the worker accepts each one and rewrites it on retry without losing a field. `emak-jobs check` runs the same validation from the command line; it also refuses fields the worker doesn't know (the running worker only warns about those). The fork's Lua test writes real job files through `emak_jobs.enqueue` and runs `emak-jobs check` on them, and the installer's drift check fails when the worker refused a job as invalid, or saw an unknown field, in the last day. Changing the format means a new `v`: the worker that reads it ships and runs everywhere before the Lua that writes it.
 
 ## Command line
 
@@ -93,7 +94,7 @@ By hand: copy the release's files to `/usr/local/emak-jobs/`, the unit to `/etc/
 
 ## Operations
 
-- **Health:** `cat /run/emak-jobs/status.json` (version, pid, counts, queue depth, `work`/`retry_dir`/`failed_dir`, p50/p95 latency, the last 50 results), written every 10 s. `journalctl -u emak-jobs` has one line per attempt: `OK`, `RETRY`, `DEAD`, `REQUEUE`, `ERR … invalid`.
+- **Health:** `cat /run/emak-jobs/status.json` (version, pid, start time, counts including `invalid`, queue depth, `work`/`retry_dir`/`failed_dir`, p50/p95 latency, the last 50 results), written every 10 s. `journalctl -u emak-jobs` has one line per attempt: `OK`, `RETRY`, `DEAD`, `REQUEUE`, `ERR … invalid`.
 - **Dead letters:** `emak-jobs-replay` lists `failed/`; `emak-jobs-replay --all` or `<id>…` re-queues with attempts reset; `--purge <id>` drops a job and its blob.
 - **Alerting** is the installer's cron monitor: service down, stale `status.json`, `failed/` > 0, `retry/` > 50, `new/` > 100, the oldest job in `new/` older than 2 minutes.
 

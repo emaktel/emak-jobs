@@ -39,7 +39,7 @@ func TestCheckRefusesInvalidJobs(t *testing.T) {
 		if err != nil || bad != 1 || !strings.HasPrefix(out.String(), "INVALID ") {
 			t.Errorf("%s: bad=%d err=%v out=%q", f, bad, err, out.String())
 		}
-		if strings.HasSuffix(f, "unknown_field.json") {
+		if strings.HasSuffix(f, "unknown_field.json") || strings.HasSuffix(f, "miscased_field.json") {
 			continue
 		}
 		var inv *invalidJobError
