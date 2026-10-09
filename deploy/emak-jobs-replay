@@ -1,0 +1,27 @@
+#!/bin/bash
+# emak-jobs-replay — re-queue dead-lettered jobs (failed/ -> new/). The worker picks them up immediately (inotify).
+# Usage: emak-jobs-replay              # list failed jobs
+#        emak-jobs-replay --all        # replay every failed job (attempts reset)
+#        emak-jobs-replay <id> [...]   # replay specific job ids
+#        emak-jobs-replay --purge <id> # delete a failed job (and its blob) permanently
+SPOOL=${EMAK_JOBS_SPOOL:-/var/spool/emak-jobs}
+list(){ for f in "$SPOOL"/failed/*.json; do [ -e "$f" ] || { echo "no failed jobs"; return; }
+  python3 - "$f" <<'PY'
+import json,sys,os
+d=json.load(open(sys.argv[1])); print("%s  attempts=%s  %s\n    last_error: %s"%(d['id'],d.get('attempts'),d.get('label',''),d.get('last_error','')[:160]))
+PY
+done; }
+replay(){ local f="$SPOOL/failed/$1.json"; [ -f "$f" ] || { echo "no such failed job: $1"; return 1; }
+  [ -n "${2:-}" ] && ! [ -e "$(python3 -c "import json;print(json.load(open('$f')).get('body_file',''))")" ] 2>/dev/null && true
+  python3 - "$f" <<'PY'
+import json,sys
+p=sys.argv[1]; d=json.load(open(p)); d['attempts']=0; d['next_at']=0; d.pop('last_error',None)
+json.dump(d,open(p+'.tmp','w'),indent=1)
+PY
+  mv "$f.tmp" "$SPOOL/tmp/$1.json" && mv "$SPOOL/tmp/$1.json" "$SPOOL/new/$1.json" && rm -f "$f" && echo "re-queued $1"; }
+case "${1:-}" in
+  "") list ;;
+  --all) for f in "$SPOOL"/failed/*.json; do [ -e "$f" ] && replay "$(basename "$f" .json)"; done ;;
+  --purge) shift; for id in "$@"; do f="$SPOOL/failed/$id.json"; b=$(python3 -c "import json;d=json.load(open('$f'));print(d['body_file'] if d.get('delete_body_file') else '')" 2>/dev/null); rm -f "$f"; [ -n "$b" ] && rm -f "$b"; echo "purged $id"; done ;;
+  *) for id in "$@"; do replay "$id"; done ;;
+esac

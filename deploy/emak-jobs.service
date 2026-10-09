@@ -1,0 +1,30 @@
+[Unit]
+Description=emak-jobs: spool worker for FreeSWITCH Lua HTTP jobs (voicemail R2 uploads etc.)
+Documentation=file:/usr/local/emak-jobs/README.md
+Wants=network-online.target
+After=network-online.target freeswitch.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+ExecStart=/usr/local/emak-jobs/emak-jobs
+Environment=EMAK_JOBS_SPOOL=/var/spool/emak-jobs
+Environment=EMAK_JOBS_WORKERS=4
+Environment=EMAK_JOBS_MAX_ATTEMPTS=8
+Environment=EMAK_JOBS_ENV_FILE=/usr/share/freeswitch/scripts/.env
+Environment=EMAK_JOBS_STATUS_FILE=/run/emak-jobs/status.json
+Environment=EMAK_JOBS_DONE_KEEP_HOURS=24
+RuntimeDirectory=emak-jobs
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=false
+ReadWritePaths=/var/spool/emak-jobs /var/lib/freeswitch/storage /tmp
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
