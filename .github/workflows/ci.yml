@@ -1,0 +1,15 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # gofmt, go vet, go test -race, in the pinned Go image (.go-version)
+      - run: make test
+      - name: static linux/amd64 build
+        run: make release VERSION=v0.0.0

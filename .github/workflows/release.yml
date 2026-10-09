@@ -1,0 +1,25 @@
+name: release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: tag must be on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - run: make test
+      # Built in the same pinned image as `make release` locally, so anyone can reproduce the sha256.
+      - run: make release VERSION="$GITHUB_REF_NAME"
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sed -n "/^## $GITHUB_REF_NAME\$/,/^## /p" CHANGELOG.md | sed '1d;/^## /d' > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no section for $GITHUB_REF_NAME" >&2; exit 1; }
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
