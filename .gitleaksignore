@@ -1,0 +1,3 @@
+# testKey in voicemail_auth_test.go is the sequential placeholder key the SigV4 test vectors share
+# with the Lua signer and the SvelteKit verifier tests; it signs nothing real.
+64d9c0fc8189ae41535ce366f34976bcc4bac0e0:voicemail_auth_test.go:generic-api-key:15
