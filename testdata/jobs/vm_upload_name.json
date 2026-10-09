@@ -1,0 +1,19 @@
+{
+ "v": 1,
+ "id": "00000000-0000-4000-8000-000000000004",
+ "type": "http",
+ "created": "2026-10-09T20:00:00Z",
+ "attempts": 0,
+ "label": "vm_upload_name clinic.example.com 101",
+ "method": "POST",
+ "url": "https://api.example.com/api/v0/voicemails/names/upload/clinic.example.com/101",
+ "auth": "vm_fetch",
+ "body_file": "/var/spool/emak-jobs/blobs/00000000-0000-4000-8000-000000000004.wav",
+ "original_body_file": "/var/lib/freeswitch/storage/voicemail/default/clinic.example.com/101/recorded_name.wav",
+ "delete_body_file": true,
+ "content_type": "audio/wav",
+ "expect": "\"success\"\\s*:\\s*true",
+ "timeout_s": 120,
+ "log_ok": "[voicemail] R2 recorded name upload OK: voicemail_id=101",
+ "log_fail": "[voicemail] R2 recorded name upload FAILED for voicemail_id=101"
+}

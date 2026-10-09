@@ -1,0 +1,17 @@
+{
+ "v": 1,
+ "id": "00000000-0000-4000-8000-000000000008",
+ "type": "http",
+ "created": "2026-10-09T20:00:00Z",
+ "attempts": 0,
+ "label": "recordings_upload clinic.example.com greeting.wav",
+ "method": "POST",
+ "url": "https://api.example.com/api/v1/recordings",
+ "auth": "emak_api_bearer",
+ "body_file": "/tmp/recording_json_1760040000",
+ "content_type": "application/json",
+ "delete_body_file": true,
+ "timeout_s": 120,
+ "log_ok": "[recordings] Successfully uploaded recording to API: greeting.wav",
+ "log_fail": "[recordings] Failed to upload recording to API: greeting.wav"
+}

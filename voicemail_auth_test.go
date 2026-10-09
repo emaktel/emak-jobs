@@ -131,7 +131,7 @@ func TestAuthForVmFetchSignsAndNeverSendsAuthorization(t *testing.T) {
 	vmCredentialFile = filepath.Join(dir, "cred.xml")
 	os.WriteFile(vmCredentialFile, []byte(`<include><profile name="voicemail-storage"><aws-s3><access-key-id><![CDATA[f2]]></access-key-id><secret-access-key><![CDATA[`+testKey+`]]></secret-access-key></aws-s3></profile></include>`), 0600)
 	req, _ := http.NewRequest("DELETE", "https://alpha.emaktalk.com/api/v0/voicemails/messages/r2/clinic.emaktalk.com/101/3f1c2a9e-1111-4222-8333-444455556666", nil)
-	if err := authFor("vm_fetch", req); err != nil {
+	if err := authFor("vm_fetch", "", req); err != nil {
 		t.Fatal(err)
 	}
 	if req.Header.Get("Authorization") != "" || req.URL.User != nil {

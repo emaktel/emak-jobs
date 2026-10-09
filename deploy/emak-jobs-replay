@@ -12,7 +12,6 @@ d=json.load(open(sys.argv[1])); print("%s  attempts=%s  %s\n    last_error: %s"%
 PY
 done; }
 replay(){ local f="$SPOOL/failed/$1.json"; [ -f "$f" ] || { echo "no such failed job: $1"; return 1; }
-  [ -n "${2:-}" ] && ! [ -e "$(python3 -c "import json;print(json.load(open('$f')).get('body_file',''))")" ] 2>/dev/null && true
   python3 - "$f" <<'PY'
 import json,sys
 p=sys.argv[1]; d=json.load(open(p)); d['attempts']=0; d['next_at']=0; d.pop('last_error',None)

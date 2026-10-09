@@ -1,0 +1,15 @@
+{
+ "v": 1,
+ "id": "00000000-0000-4000-8000-000000000007",
+ "type": "http",
+ "created": "2026-10-09T20:00:00Z",
+ "attempts": 0,
+ "label": "vm_forward_copy clinic.example.com 101 msg_3f1c2a9e -> 102",
+ "method": "POST",
+ "url": "https://api.example.com/api/v0/voicemails/messages/copy/clinic.example.com/101/3f1c2a9e-1111-4222-8333-444455556666/102",
+ "auth": "vm_fetch",
+ "expect": "\"success\"\\s*:\\s*true",
+ "timeout_s": 60,
+ "log_ok": "[voicemail] R2 forward copy OK: msg_3f1c2a9e",
+ "log_fail": "[voicemail] R2 forward copy FAILED for msg_3f1c2a9e"
+}

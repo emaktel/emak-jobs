@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "00000000-0000-4000-8000-000000000006",
+ "type": "http",
+ "created": "2026-10-09T20:00:00Z",
+ "attempts": 0,
+ "label": "vm_delete_name clinic.example.com 101",
+ "method": "DELETE",
+ "url": "https://api.example.com/api/v0/voicemails/names/fetch/clinic.example.com/101/recorded_name.wav",
+ "auth": "vm_fetch",
+ "timeout_s": 60
+}
