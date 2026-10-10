@@ -15,6 +15,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -47,29 +48,43 @@ const usage = `usage: emak-jobs                 run the worker
 `
 
 func main() {
-	args := os.Args[1:]
-	switch {
-	case len(args) == 0:
+	if len(os.Args) == 1 {
 		os.Exit(run())
+	}
+	os.Exit(command(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// command runs a subcommand. Anything it doesn't know exits 2 with the usage: no argument
+// combination may fall through to starting a worker (the pre-v1 binary ignored its arguments
+// and did exactly that).
+func command(args []string, stdout, stderr io.Writer) int {
+	switch {
 	case len(args) == 1 && args[0] == "--version":
-		fmt.Println("emak-jobs " + version)
-	case args[0] == "check" && len(args) > 1:
-		bad, err := checkPaths(args[1:], os.Stdout)
+		fmt.Fprintln(stdout, "emak-jobs "+version)
+		return 0
+	case len(args) > 1 && args[0] == "check":
+		bad, err := checkPaths(args[1:], stdout)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "check:", err)
-			os.Exit(2)
+			fmt.Fprintln(stderr, "check:", err)
+			return 2
 		}
 		if bad > 0 {
-			os.Exit(1)
+			return 1
 		}
-	default:
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
+		return 0
 	}
+	fmt.Fprint(stderr, usage)
+	return 2
 }
 
 func run() int {
 	log.SetFlags(log.Ldate | log.Ltime)
+	if os.Geteuid() == 0 {
+		// It runs as the spool's owner (www-data, see the unit). As root it would leave root-owned
+		// files in the spool (the lock, rewritten jobs) that the service can't use afterwards.
+		log.Printf("FATAL emak-jobs runs as www-data (systemctl start emak-jobs), not as root")
+		return 1
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
@@ -102,13 +117,13 @@ func run() int {
 	<-ctx.Done()
 	log.Printf("stopping: no new claims, in-flight requests cancelled and re-queued")
 	done := make(chan struct{})
-	go func() { w.wg.Wait(); close(done) }()
+	go func() { w.wg.Wait(); w.bg.Wait(); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		log.Printf("WARN a worker did not finish filing within 5 s; its job is recovered from work/ on start")
 	}
-	if err := w.writeStatus(); err != nil {
+	if err := w.writeStatus(); err != nil { // the status loop has stopped: no concurrent write
 		log.Printf("WARN status file: %v", err)
 	}
 	log.Printf("stopped")

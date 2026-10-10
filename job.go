@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // formatVersion is the only job-file format this worker reads. A file without "v" is v1 (the
@@ -58,6 +59,8 @@ const (
 	maxTimeoutS     = 3600
 	// far above any EMAK_JOBS_MAX_ATTEMPTS; refuses values that would overflow when incremented
 	maxAttemptsField = 1000
+	// seconds; the longest backoff is an hour, so a later next_at is a unit mistake (ms?) or garbage
+	maxNextAtAhead = 24 * 60 * 60
 )
 
 var (
@@ -162,8 +165,8 @@ func (j *Job) validate() error {
 	if j.Attempts < 0 || j.Attempts > maxAttemptsField {
 		return invalid("attempts %d outside 0..%d", j.Attempts, maxAttemptsField)
 	}
-	if j.NextAt < 0 {
-		return invalid("next_at %d is negative", j.NextAt)
+	if j.NextAt < 0 || j.NextAt > time.Now().Unix()+maxNextAtAhead {
+		return invalid("next_at %d is negative or more than a day ahead", j.NextAt)
 	}
 	if j.TimeoutS < 1 || j.TimeoutS > maxTimeoutS {
 		return invalid("timeout_s %d outside 1..%d", j.TimeoutS, maxTimeoutS)

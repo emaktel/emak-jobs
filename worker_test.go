@@ -29,9 +29,8 @@ func newTestWorker(t *testing.T, handler http.HandlerFunc) (*testWorker, *httpte
 		handler(rw, r)
 	}))
 	t.Cleanup(srv.Close)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
 	w := &worker{
 		spool: filepath.Join(dir, "spool"), workers: 2, maxAttempts: 3, doneKeep: time.Hour,
 		statusFile: filepath.Join(dir, "status.json"), apiKey: "test-api-key", client: srv.Client(),
@@ -42,6 +41,9 @@ func newTestWorker(t *testing.T, handler http.HandlerFunc) (*testWorker, *httpte
 			t.Fatal(err)
 		}
 	}
+	// Registered after TempDir, so it runs first: the worker's goroutines stop before the
+	// directory is removed.
+	t.Cleanup(func() { cancel(); w.wg.Wait(); w.bg.Wait() })
 	return &testWorker{w, cancel, &hits}, srv
 }
 
@@ -317,5 +319,19 @@ func TestPanicCostsOneJob(t *testing.T) {
 	}
 	if atomic.LoadInt64(&tw.inflight) != 0 {
 		t.Fatal("inflight not released")
+	}
+}
+
+// A panic is counted, so the installer's health gate and the status file can see it.
+func TestPanicIsCounted(t *testing.T) {
+	tw, srv := newTestWorker(t, ok)
+	tw.client = nil
+	tw.process(tw.put(t, "new", "q", func(j *Job) { j.URL = srv.URL + "/q" }))
+	if err := tw.writeStatus(); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(tw.statusFile)
+	if !strings.Contains(string(b), `"panic": 1`) {
+		t.Fatalf("status: %s", b)
 	}
 }

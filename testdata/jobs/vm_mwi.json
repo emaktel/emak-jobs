@@ -1,0 +1,15 @@
+{
+ "v": 1,
+ "id": "00000000-0000-4000-8000-000000000012",
+ "type": "http",
+ "created": "2026-10-09T20:00:00Z",
+ "attempts": 0,
+ "label": "vm_mwi 101@clinic.example.com",
+ "method": "POST",
+ "url": "https://api.example.com/api/v0/voicemails/mwi/clinic.example.com/101",
+ "auth": "vm_fetch",
+ "timeout_s": 15,
+ "expect": "\"success\"\\s*:\\s*true",
+ "log_ok": "[voicemail] mwi on every server OK: 101@clinic.example.com",
+ "log_fail": "[voicemail] mwi on every server FAILED for 101@clinic.example.com"
+}

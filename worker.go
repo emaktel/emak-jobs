@@ -40,13 +40,14 @@ type worker struct {
 	lockFile *os.File        // flock on <spool>/.lock: one worker per spool
 	inflight int64
 	started  time.Time
-	wg       sync.WaitGroup
+	wg       sync.WaitGroup // consumers
+	bg       sync.WaitGroup // housekeeping and the status writer
 
 	stats struct {
 		sync.Mutex
-		OK, Fail, Retry, Dead, Invalid int64
-		Last                           []string
-		DurMs                          []int64
+		OK, Fail, Retry, Dead, Invalid, Panic int64
+		Last                                  []string
+		DurMs                                 []int64
 	}
 }
 
@@ -86,7 +87,9 @@ func (w *worker) unmark(path string) {
 // lockSpool takes an exclusive lock on the spool: a second worker on the same spool would move
 // the first one's in-flight jobs from work/ back to new/ and run them twice.
 func (w *worker) lockSpool() error {
-	f, err := os.OpenFile(filepath.Join(w.spool, ".lock"), os.O_CREATE|os.O_RDWR, 0660)
+	// Read-only and world-readable: flock needs no write access, so a lock file first created by
+	// root (someone running the binary by hand) never locks out the www-data service.
+	f, err := os.OpenFile(filepath.Join(w.spool, ".lock"), os.O_CREATE|os.O_RDONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("spool lock: %w", err)
 	}
@@ -126,8 +129,9 @@ func (w *worker) start() error {
 		w.wg.Add(1)
 		go w.consume()
 	}
-	go w.housekeeping()
-	go w.writeStatusLoop()
+	w.bg.Add(2)
+	go func() { defer w.bg.Done(); w.housekeeping() }()
+	go func() { defer w.bg.Done(); w.writeStatusLoop() }()
 	return nil
 }
 
@@ -189,6 +193,7 @@ func (w *worker) scheduleAt(p string, inSecs int64) {
 		go deliver()
 		return
 	}
+	inSecs = min(inSecs, maxNextAtAhead)
 	time.AfterFunc(time.Duration(inSecs)*time.Second, deliver)
 }
 
@@ -224,6 +229,13 @@ func (w *worker) process(src string) {
 		// A bug must cost one job, not the worker: without this a panic would crash-loop on the
 		// same file, which start recovers from work/ every time.
 		if r := recover(); r != nil {
+			w.stats.Lock()
+			w.stats.Panic++
+			w.stats.Unlock()
+			if _, err := os.Stat(work); err != nil {
+				log.Printf("ERR job=%s panic: %v (after the job was filed)", name, r)
+				return
+			}
 			log.Printf("ERR job=%s panic: %v -> failed/", name, r)
 			if err := os.Rename(work, filepath.Join(w.dir("failed"), name)); err != nil {
 				log.Printf("ERR job=%s move to failed/: %v", name, err)
@@ -527,7 +539,7 @@ func (w *worker) writeStatus() error {
 	st := map[string]any{
 		"version": version, "pid": os.Getpid(), "started": w.started.Format(time.RFC3339),
 		"time": time.Now().Format(time.RFC3339), "ok": w.stats.OK, "fail": w.stats.Fail, "retry": w.stats.Retry,
-		"dead": w.stats.Dead, "invalid": w.stats.Invalid,
+		"dead": w.stats.Dead, "invalid": w.stats.Invalid, "panic": w.stats.Panic,
 		"inflight": atomic.LoadInt64(&w.inflight), "queued": len(w.queue),
 		"new": len(list(w.dir("new"))), "work": len(list(w.dir("work"))), "retry_dir": len(list(w.dir("retry"))),
 		"failed_dir": len(list(w.dir("failed"))),

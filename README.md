@@ -74,6 +74,8 @@ emak-jobs --version        print the version
 emak-jobs check PATH...    validate job files, or every *.json in a directory; exit 1 if any is invalid
 ```
 
+Any other arguments print the usage and exit 2. The worker refuses to run as root: it runs as the spool's owner (`www-data`) under systemd. Binaries before v1.0.0 ignored their arguments and started a worker, so never run one by hand with arguments.
+
 Settings (environment; the unit sets them):
 
 | variable | default |
@@ -94,7 +96,7 @@ By hand: copy the release's files to `/usr/local/emak-jobs/`, the unit to `/etc/
 
 ## Operations
 
-- **Health:** `cat /run/emak-jobs/status.json` (version, pid, start time, counts including `invalid`, queue depth, `work`/`retry_dir`/`failed_dir`, p50/p95 latency, the last 50 results), written every 10 s. `journalctl -u emak-jobs` has one line per attempt: `OK`, `RETRY`, `DEAD`, `REQUEUE`, `ERR … invalid`.
+- **Health:** `cat /run/emak-jobs/status.json` (version, pid, start time, counts including `invalid` and `panic`, queue depth, `work`/`retry_dir`/`failed_dir`, p50/p95 latency, the last 50 results), written every 10 s. `journalctl -u emak-jobs` has one line per attempt: `OK`, `RETRY`, `DEAD`, `REQUEUE`, `ERR … invalid`.
 - **Dead letters:** `emak-jobs-replay` lists `failed/`; `emak-jobs-replay --all` or `<id>…` re-queues with attempts reset; `--purge <id>` drops a job and its blob.
 - **Alerting** is the installer's cron monitor: service down, stale `status.json`, `failed/` > 0, `retry/` > 50, `new/` > 100, the oldest job in `new/` older than 2 minutes.
 
