@@ -120,11 +120,11 @@ func run() int {
 	go func() { w.wg.Wait(); w.bg.Wait(); close(done) }()
 	select {
 	case <-done:
+		if err := w.writeStatus(); err != nil { // the status loop has stopped: no concurrent write
+			log.Printf("WARN status file: %v", err)
+		}
 	case <-time.After(5 * time.Second):
 		log.Printf("WARN a worker did not finish filing within 5 s; its job is recovered from work/ on start")
-	}
-	if err := w.writeStatus(); err != nil { // the status loop has stopped: no concurrent write
-		log.Printf("WARN status file: %v", err)
 	}
 	log.Printf("stopped")
 	return 0
